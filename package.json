@@ -1,0 +1,37 @@
+{
+  "name": "onestreamxf-chat",
+  "version": "0.1.0",
+  "description": "A GitHub Pages demo chat app powered by the public OneStream XF Codex skill and OpenRouter free models.",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "keywords": [
+    "onestream",
+    "skill",
+    "openrouter",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@mariozechner/pi-agent-core": "^0.70.2",
+    "@mariozechner/pi-ai": "^0.70.2",
+    "@mariozechner/pi-web-ui": "^0.70.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "dompurify": "^3.4.1",
+    "lucide-react": "^1.11.0",
+    "marked": "^18.0.2",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3"
+  }
+}
