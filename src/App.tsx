@@ -37,6 +37,8 @@ const SAMPLE_PROMPTS = [
   "Why does a Cube View return different data in a dashboard than when I run it directly?",
 ];
 
+const MAX_REASONING_CHARS = 1400;
+
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
@@ -53,6 +55,9 @@ export function App() {
 
   const agentRef = useRef<Agent | null>(null);
   const agentKeyRef = useRef("");
+  const activeReasoningIdRef = useRef<string | null>(null);
+  const activeReasoningTextRef = useRef("");
+  const assistantTextSeenRef = useRef(new Set<string>());
 
   useEffect(() => {
     saveSettings(settings);
@@ -120,6 +125,9 @@ export function App() {
     };
 
     const history = messages;
+    activeReasoningIdRef.current = null;
+    activeReasoningTextRef.current = "";
+    assistantTextSeenRef.current.delete(assistantId);
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput("");
     setIsRunning(true);
@@ -156,10 +164,11 @@ export function App() {
     if (event.type === "message_update") {
       const assistantEvent = event.assistantMessageEvent;
       if (assistantEvent.type === "text_delta") {
+        assistantTextSeenRef.current.add(assistantId);
         appendAssistantText(assistantId, assistantEvent.delta);
       }
       if (assistantEvent.type === "thinking_delta") {
-        addActivity("thinking", "Model reasoning", assistantEvent.delta);
+        appendReasoningDelta(assistantEvent.delta);
       }
       if (assistantEvent.type === "toolcall_end") {
         addActivity("tool", "Tool selected", `${assistantEvent.toolCall.name} ${JSON.stringify(assistantEvent.toolCall.arguments)}`);
@@ -180,7 +189,13 @@ export function App() {
     }
 
     if (event.type === "agent_end") {
-      addActivity("answer", "Answer complete", "The final response has been streamed into the chat.");
+      activeReasoningIdRef.current = null;
+      activeReasoningTextRef.current = "";
+      if (assistantTextSeenRef.current.has(assistantId)) {
+        addActivity("answer", "Answer complete", "The final response has been streamed into the chat.");
+      } else {
+        addActivity("error", "No final answer text", "The model run ended without producing visible answer text. Try again with Thinking set to Off or Low.");
+      }
     }
   }
 
@@ -192,10 +207,52 @@ export function App() {
     );
   }
 
+  function appendReasoningDelta(delta: string) {
+    const cleanDelta = delta.replace(/\s+/g, " ");
+    if (!cleanDelta.trim()) return;
+
+    const nextText = clipReasoning(`${activeReasoningTextRef.current}${cleanDelta}`);
+    activeReasoningTextRef.current = nextText;
+
+    if (!activeReasoningIdRef.current) {
+      const id = crypto.randomUUID();
+      activeReasoningIdRef.current = id;
+      setActivity((current) =>
+        [
+          {
+            id,
+            kind: "thinking" as const,
+            title: "Model reasoning",
+            body: nextText,
+            createdAt: Date.now(),
+          },
+          ...current,
+        ].slice(0, 50),
+      );
+      return;
+    }
+
+    const id = activeReasoningIdRef.current;
+    setActivity((current) =>
+      current.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              body: nextText,
+              createdAt: Date.now(),
+            }
+          : item,
+      ),
+    );
+  }
+
   function startNewChat() {
     agentRef.current?.reset();
     agentRef.current = null;
     agentKeyRef.current = "";
+    activeReasoningIdRef.current = null;
+    activeReasoningTextRef.current = "";
+    assistantTextSeenRef.current.clear();
     setMessages([]);
     setActivity([]);
     clearSavedMessages();
@@ -231,6 +288,9 @@ export function App() {
     agentRef.current?.reset();
     agentRef.current = null;
     agentKeyRef.current = "";
+    activeReasoningIdRef.current = null;
+    activeReasoningTextRef.current = "";
+    assistantTextSeenRef.current.clear();
     setSettings((current) => ({ ...current, apiKey: "" }));
     setSettingsOpen(true);
     addActivity("skill", "OpenRouter key cleared", "The saved API key was removed from this browser.");
@@ -378,6 +438,12 @@ export function App() {
       ].slice(0, 50),
     );
   }
+}
+
+function clipReasoning(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trimStart();
+  if (normalized.length <= MAX_REASONING_CHARS) return normalized;
+  return `...${normalized.slice(normalized.length - MAX_REASONING_CHARS).trimStart()}`;
 }
 
 function SettingsPanel({
