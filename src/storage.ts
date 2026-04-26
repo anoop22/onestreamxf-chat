@@ -2,13 +2,14 @@ import type { AppSettings, ChatMessage } from "./types";
 
 const SETTINGS_KEY = "onestreamxf-chat:settings";
 const MESSAGES_KEY = "onestreamxf-chat:messages";
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: "",
   model: "openrouter/free",
   thinkingLevel: "low",
   autoStopSeconds: 120,
+  publicWebSearch: true,
   enterToSend: true,
 };
 

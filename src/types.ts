@@ -14,6 +14,13 @@ export type SearchHit = {
   url: string;
 };
 
+export type WebSearchHit = {
+  title: string;
+  url: string;
+  snippet: string;
+  source: string;
+};
+
 export type SkillState =
   | { status: "loading"; docs: SkillDoc[]; message: string }
   | { status: "ready"; docs: SkillDoc[]; message: string }
@@ -43,5 +50,6 @@ export type AppSettings = {
   model: string;
   thinkingLevel: "off" | "minimal" | "low" | "medium" | "high";
   autoStopSeconds: number;
+  publicWebSearch: boolean;
   enterToSend: boolean;
 };

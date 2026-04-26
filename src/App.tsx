@@ -173,7 +173,7 @@ export function App() {
 
   function getAgent(history: ChatMessage[]): Agent {
     const docsSignature = skillDocs.map((doc) => `${doc.path}:${doc.content.length}`).join("|");
-    const key = `${settings.model}:${settings.thinkingLevel}:${settings.apiKey.slice(-8)}:${docsSignature}`;
+    const key = `${settings.model}:${settings.thinkingLevel}:${settings.publicWebSearch}:${settings.apiKey.slice(-8)}:${docsSignature}`;
     if (!agentRef.current || agentKeyRef.current !== key) {
       agentRef.current = createOneStreamAgent(settings, skillDocs);
       agentRef.current.state.messages = toAgentMessages(history);
@@ -198,16 +198,16 @@ export function App() {
     }
 
     if (event.type === "tool_execution_start") {
-      addActivity("tool", "Searching OneStream skill", summarizeToolArgs(event.args));
+      addActivity("tool", toolActivityTitle(event.toolName, true), summarizeToolArgs(event.args));
     }
 
     if (event.type === "tool_execution_end") {
       const hits = event.result?.details?.hits ?? [];
-      const body =
-        hits.length > 0
-          ? hits.map((hit: { path: string; heading: string }) => `${hit.path} -> ${hit.heading}`).join("\n")
-          : "No matching skill sections returned.";
-      addActivity(event.isError ? "error" : "tool", event.isError ? "Tool error" : `Skill search returned ${hits.length} hits`, body);
+      addActivity(
+        event.isError ? "error" : "tool",
+        event.isError ? "Tool error" : toolActivityTitle(event.toolName, false, hits.length),
+        summarizeToolHits(event.toolName, hits),
+      );
     }
 
     if (event.type === "agent_end") {
@@ -635,6 +635,14 @@ function SettingsPanel({
       <label className="checkbox-row">
         <input
           type="checkbox"
+          checked={settings.publicWebSearch}
+          onChange={(event) => setSettings((current) => ({ ...current, publicWebSearch: event.target.checked }))}
+        />
+        <span>Allow public web search</span>
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
           checked={settings.enterToSend}
           onChange={(event) => setSettings((current) => ({ ...current, enterToSend: event.target.checked }))}
         />
@@ -642,6 +650,7 @@ function SettingsPanel({
       </label>
       <p>
         The key is stored in this browser only. GitHub Pages serves static files; model calls go directly from your browser to OpenRouter.
+        Public web search sends focused OneStream queries to DuckDuckGo through AllOrigins.
       </p>
     </section>
   );
@@ -715,6 +724,14 @@ function ActivityBody({ body, docsByPath }: { body: string; docsByPath: Map<stri
             </a>
           );
         }
+        const url = line.match(/https?:\/\/\S+/)?.[0]?.replace(/[),.;]+$/, "");
+        if (url) {
+          return (
+            <a key={`${line}-${index}`} href={url} target="_blank" rel="noreferrer">
+              {line}
+            </a>
+          );
+        }
         return <p key={`${line}-${index}`}>{line}</p>;
       })}
     </div>
@@ -724,7 +741,38 @@ function ActivityBody({ body, docsByPath }: { body: string; docsByPath: Map<stri
 function summarizeToolArgs(args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
-  return [record.query, record.focus].filter(Boolean).join(" | ");
+  return [record.query, record.focus, record.site].filter(Boolean).join(" | ");
+}
+
+function toolActivityTitle(toolName: string, isStart: boolean, count?: number): string {
+  if (toolName === "search_public_web") {
+    return isStart ? "Searching public web" : `Public web search returned ${count ?? 0} results`;
+  }
+  return isStart ? "Searching OneStream skill" : `Skill search returned ${count ?? 0} hits`;
+}
+
+function summarizeToolHits(toolName: string, hits: unknown[]): string {
+  if (!hits.length) {
+    return toolName === "search_public_web"
+      ? "No public web results returned."
+      : "No matching skill sections returned.";
+  }
+
+  if (toolName === "search_public_web") {
+    return hits
+      .map((hit) => {
+        const record = hit as { title?: string; url?: string; source?: string };
+        return [record.title, record.source, record.url].filter(Boolean).join("\n");
+      })
+      .join("\n\n");
+  }
+
+  return hits
+    .map((hit) => {
+      const record = hit as { path?: string; heading?: string };
+      return [record.path, record.heading].filter(Boolean).join(" -> ");
+    })
+    .join("\n");
 }
 
 function toAgentMessages(messages: ChatMessage[]) {
