@@ -512,18 +512,19 @@ function SettingsPanel({
   setSettings: (next: AppSettings | ((current: AppSettings) => AppSettings)) => void;
   onClearKey: () => boolean;
 }) {
-  const [draftApiKey, setDraftApiKey] = useState(settings.apiKey);
+  const [draftApiKey, setDraftApiKey] = useState("");
   const [appliedFlash, setAppliedFlash] = useState(false);
-  const keyChanged = draftApiKey !== settings.apiKey;
-  const canApplyKey = draftApiKey.trim().length > 0 && keyChanged;
+  const trimmedDraftApiKey = draftApiKey.trim();
+  const hasSavedApiKey = settings.apiKey.trim().length > 0;
+  const canApplyKey = trimmedDraftApiKey.length > 0 && trimmedDraftApiKey !== settings.apiKey;
 
   useEffect(() => {
-    setDraftApiKey(settings.apiKey);
+    setDraftApiKey("");
   }, [settings.apiKey]);
 
   function applyApiKey() {
-    if (!draftApiKey.trim()) return;
-    setSettings((current) => ({ ...current, apiKey: draftApiKey.trim() }));
+    if (!trimmedDraftApiKey) return;
+    setSettings((current) => ({ ...current, apiKey: trimmedDraftApiKey }));
     setAppliedFlash(true);
     window.setTimeout(() => setAppliedFlash(false), 1800);
   }
@@ -546,7 +547,8 @@ function SettingsPanel({
           <input
             type="password"
             value={draftApiKey}
-            placeholder="sk-or-v1-..."
+            placeholder={hasSavedApiKey ? "Saved key is hidden" : "sk-or-v1-..."}
+            autoComplete="off"
             onChange={(event) => {
               setDraftApiKey(event.target.value);
               setAppliedFlash(false);
@@ -560,11 +562,11 @@ function SettingsPanel({
           />
           <button
             type="button"
-            className={`apply-key-button ${appliedFlash || (!keyChanged && settings.apiKey.trim()) ? "applied" : ""}`}
+            className={`apply-key-button ${appliedFlash || (hasSavedApiKey && !draftApiKey) ? "applied" : ""}`}
             onClick={applyApiKey}
             disabled={!canApplyKey}
           >
-            {appliedFlash || (!keyChanged && settings.apiKey.trim()) ? (
+            {appliedFlash || (hasSavedApiKey && !draftApiKey) ? (
               <>
                 <CheckCircle2 size={15} />
                 Applied
@@ -573,7 +575,7 @@ function SettingsPanel({
               "Apply"
             )}
           </button>
-          <button type="button" className="clear-key-button" onClick={clearDraftAndAppliedKey} disabled={!draftApiKey.trim() && !settings.apiKey.trim()} aria-label="Clear saved OpenRouter key">
+          <button type="button" className="clear-key-button" onClick={clearDraftAndAppliedKey} disabled={!draftApiKey.trim() && !hasSavedApiKey} aria-label="Clear saved OpenRouter key">
             <Trash2 size={15} />
             Clear
           </button>

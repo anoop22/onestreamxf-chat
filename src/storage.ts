@@ -2,6 +2,7 @@ import type { AppSettings, ChatMessage } from "./types";
 
 const SETTINGS_KEY = "onestreamxf-chat:settings";
 const MESSAGES_KEY = "onestreamxf-chat:messages";
+const SETTINGS_VERSION = 2;
 
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: "",
@@ -14,14 +15,24 @@ export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw);
+    const settings = { ...DEFAULT_SETTINGS, ...parsed };
+
+    if (parsed.settingsVersion !== SETTINGS_VERSION && parsed.thinkingLevel === "medium") {
+      settings.thinkingLevel = DEFAULT_SETTINGS.thinkingLevel;
+    }
+
+    return settings;
   } catch {
     return DEFAULT_SETTINGS;
   }
 }
 
 export function saveSettings(settings: AppSettings): void {
-  const persisted: Partial<AppSettings> = { ...settings };
+  const persisted: Partial<AppSettings> & { settingsVersion: number } = {
+    ...settings,
+    settingsVersion: SETTINGS_VERSION,
+  };
   if (!persisted.apiKey) {
     delete persisted.apiKey;
   }
