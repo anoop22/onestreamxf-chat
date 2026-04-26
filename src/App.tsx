@@ -39,7 +39,6 @@ const SAMPLE_PROMPTS = [
 ];
 
 const MAX_REASONING_CHARS = 1400;
-const RUN_TIMEOUT_MS = 45_000;
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -144,9 +143,13 @@ export function App() {
 
     const agent = getAgent(history);
     const unsubscribe = agent.subscribe((agentEvent) => handleAgentEvent(agentEvent, assistantId));
-    runTimeoutRef.current = window.setTimeout(() => {
-      stopCurrentRun(`Stopped automatically after ${RUN_TIMEOUT_MS / 1000} seconds to limit OpenRouter usage.`);
-    }, RUN_TIMEOUT_MS);
+    if (settings.autoStopSeconds > 0) {
+      runTimeoutRef.current = window.setTimeout(() => {
+        stopCurrentRun(
+          `Stopped automatically after ${formatDuration(settings.autoStopSeconds)} to limit OpenRouter usage. You can change Auto-stop in Settings.`,
+        );
+      }, settings.autoStopSeconds * 1000);
+    }
 
     try {
       await agent.prompt(question);
@@ -503,6 +506,12 @@ function clipReasoning(text: string): string {
   return `...${normalized.slice(normalized.length - MAX_REASONING_CHARS).trimStart()}`;
 }
 
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds} seconds`;
+  const minutes = seconds / 60;
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
+
 function SettingsPanel({
   settings,
   setSettings,
@@ -604,6 +613,23 @@ function SettingsPanel({
           <option value="low">Low</option>
           <option value="medium">Medium</option>
           <option value="high">High</option>
+        </select>
+      </label>
+      <label>
+        <span>Auto-stop</span>
+        <select
+          value={settings.autoStopSeconds}
+          onChange={(event) =>
+            setSettings((current) => ({
+              ...current,
+              autoStopSeconds: Number(event.target.value),
+            }))
+          }
+        >
+          <option value={45}>45 seconds</option>
+          <option value={120}>2 minutes</option>
+          <option value={300}>5 minutes</option>
+          <option value={0}>Off</option>
         </select>
       </label>
       <label className="checkbox-row">
