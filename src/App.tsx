@@ -16,7 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createOneStreamAgent } from "./agent";
 import { loadOneStreamSkill } from "./skillLoader";
 import { renderMarkdown } from "./markdown";
@@ -89,7 +89,7 @@ export function App() {
   const skillDocs = skillState.docs;
   const docsByPath = useMemo(() => new Map(skillDocs.map((doc) => [doc.path, doc])), [skillDocs]);
 
-  async function handleSubmit(event?: FormEvent, forcedPrompt?: string) {
+  async function handleSubmit(event?: FormEvent | KeyboardEvent<HTMLTextAreaElement>, forcedPrompt?: string) {
     event?.preventDefault();
     const question = (forcedPrompt ?? input).trim();
     if (!question || isRunning) return;
@@ -221,11 +221,11 @@ export function App() {
       });
   }
 
-  function clearApiKey() {
+  function clearApiKey(): boolean {
     const confirmed = window.confirm(
       "Delete the OpenRouter API key saved in this browser? This removes it from localStorage and resets the current agent session.",
     );
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     clearSavedApiKey();
     agentRef.current?.reset();
@@ -234,6 +234,22 @@ export function App() {
     setSettings((current) => ({ ...current, apiKey: "" }));
     setSettingsOpen(true);
     addActivity("skill", "OpenRouter key cleared", "The saved API key was removed from this browser.");
+    return true;
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter") return;
+
+    if (settings.enterToSend && !event.shiftKey) {
+      event.preventDefault();
+      handleSubmit(event);
+      return;
+    }
+
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      handleSubmit(event);
+    }
   }
 
   return (
@@ -334,12 +350,8 @@ export function App() {
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder="Ask about Cube Views, Dashboard parameters, Business Rules, BRApi..."
-            rows={3}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                handleSubmit(event);
-              }
-            }}
+            rows={2}
+            onKeyDown={handleComposerKeyDown}
           />
           <button type="submit" disabled={!canAsk || !input.trim()}>
             {isRunning ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
@@ -375,8 +387,31 @@ function SettingsPanel({
 }: {
   settings: AppSettings;
   setSettings: (next: AppSettings | ((current: AppSettings) => AppSettings)) => void;
-  onClearKey: () => void;
+  onClearKey: () => boolean;
 }) {
+  const [draftApiKey, setDraftApiKey] = useState(settings.apiKey);
+  const [appliedFlash, setAppliedFlash] = useState(false);
+  const keyChanged = draftApiKey !== settings.apiKey;
+  const canApplyKey = draftApiKey.trim().length > 0 && keyChanged;
+
+  useEffect(() => {
+    setDraftApiKey(settings.apiKey);
+  }, [settings.apiKey]);
+
+  function applyApiKey() {
+    if (!draftApiKey.trim()) return;
+    setSettings((current) => ({ ...current, apiKey: draftApiKey.trim() }));
+    setAppliedFlash(true);
+    window.setTimeout(() => setAppliedFlash(false), 1800);
+  }
+
+  function clearDraftAndAppliedKey() {
+    const cleared = onClearKey();
+    if (!cleared) return;
+    setDraftApiKey("");
+    setAppliedFlash(false);
+  }
+
   return (
     <section className="settings-panel" aria-label="Settings">
       <label>
@@ -387,11 +422,35 @@ function SettingsPanel({
         <div className="key-input-row">
           <input
             type="password"
-            value={settings.apiKey}
+            value={draftApiKey}
             placeholder="sk-or-v1-..."
-            onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
+            onChange={(event) => {
+              setDraftApiKey(event.target.value);
+              setAppliedFlash(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyApiKey();
+              }
+            }}
           />
-          <button type="button" className="clear-key-button" onClick={onClearKey} disabled={!settings.apiKey.trim()} aria-label="Clear saved OpenRouter key">
+          <button
+            type="button"
+            className={`apply-key-button ${appliedFlash || (!keyChanged && settings.apiKey.trim()) ? "applied" : ""}`}
+            onClick={applyApiKey}
+            disabled={!canApplyKey}
+          >
+            {appliedFlash || (!keyChanged && settings.apiKey.trim()) ? (
+              <>
+                <CheckCircle2 size={15} />
+                Applied
+              </>
+            ) : (
+              "Apply"
+            )}
+          </button>
+          <button type="button" className="clear-key-button" onClick={clearDraftAndAppliedKey} disabled={!draftApiKey.trim() && !settings.apiKey.trim()} aria-label="Clear saved OpenRouter key">
             <Trash2 size={15} />
             Clear
           </button>
@@ -421,6 +480,14 @@ function SettingsPanel({
           <option value="medium">Medium</option>
           <option value="high">High</option>
         </select>
+      </label>
+      <label className="checkbox-row">
+        <input
+          type="checkbox"
+          checked={settings.enterToSend}
+          onChange={(event) => setSettings((current) => ({ ...current, enterToSend: event.target.checked }))}
+        />
+        <span>Enter sends, Shift+Enter adds a line</span>
       </label>
       <p>
         The key is stored in this browser only. GitHub Pages serves static files; model calls go directly from your browser to OpenRouter.

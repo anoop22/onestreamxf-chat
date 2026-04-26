@@ -7,6 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: "",
   model: "openrouter/free",
   thinkingLevel: "medium",
+  enterToSend: true,
 };
 
 export function loadSettings(): AppSettings {

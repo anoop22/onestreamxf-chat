@@ -42,4 +42,5 @@ export type AppSettings = {
   apiKey: string;
   model: string;
   thinkingLevel: "off" | "minimal" | "low" | "medium" | "high";
+  enterToSend: boolean;
 };
