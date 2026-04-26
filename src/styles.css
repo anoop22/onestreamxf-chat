@@ -279,6 +279,31 @@ button {
   padding: 8px 10px;
 }
 
+.key-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.clear-key-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #e4c8c1;
+  border-radius: 8px;
+  background: #fff7f6;
+  color: #9b2c1f;
+  font-weight: 800;
+}
+
+.clear-key-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .settings-panel p {
   grid-column: 1 / -1;
   margin: 0;

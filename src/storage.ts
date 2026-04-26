@@ -20,7 +20,16 @@ export function loadSettings(): AppSettings {
 }
 
 export function saveSettings(settings: AppSettings): void {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  const persisted: Partial<AppSettings> = { ...settings };
+  if (!persisted.apiKey) {
+    delete persisted.apiKey;
+  }
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(persisted));
+}
+
+export function clearSavedApiKey(): void {
+  const settings = loadSettings();
+  saveSettings({ ...settings, apiKey: "" });
 }
 
 export function loadMessages(): ChatMessage[] {

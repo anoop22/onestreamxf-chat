@@ -21,6 +21,7 @@ import { createOneStreamAgent } from "./agent";
 import { loadOneStreamSkill } from "./skillLoader";
 import { renderMarkdown } from "./markdown";
 import {
+  clearSavedApiKey,
   clearSavedMessages,
   DEFAULT_SETTINGS,
   loadMessages,
@@ -220,6 +221,21 @@ export function App() {
       });
   }
 
+  function clearApiKey() {
+    const confirmed = window.confirm(
+      "Delete the OpenRouter API key saved in this browser? This removes it from localStorage and resets the current agent session.",
+    );
+    if (!confirmed) return;
+
+    clearSavedApiKey();
+    agentRef.current?.reset();
+    agentRef.current = null;
+    agentKeyRef.current = "";
+    setSettings((current) => ({ ...current, apiKey: "" }));
+    setSettingsOpen(true);
+    addActivity("skill", "OpenRouter key cleared", "The saved API key was removed from this browser.");
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -288,7 +304,7 @@ export function App() {
           </div>
         </header>
 
-        {settingsOpen && <SettingsPanel settings={settings} setSettings={setSettings} />}
+        {settingsOpen && <SettingsPanel settings={settings} setSettings={setSettings} onClearKey={clearApiKey} />}
 
         <div className="message-list">
           {messages.length === 0 && (
@@ -355,9 +371,11 @@ export function App() {
 function SettingsPanel({
   settings,
   setSettings,
+  onClearKey,
 }: {
   settings: AppSettings;
   setSettings: (next: AppSettings | ((current: AppSettings) => AppSettings)) => void;
+  onClearKey: () => void;
 }) {
   return (
     <section className="settings-panel" aria-label="Settings">
@@ -366,12 +384,18 @@ function SettingsPanel({
           <KeyRound size={15} />
           OpenRouter API key
         </span>
-        <input
-          type="password"
-          value={settings.apiKey}
-          placeholder="sk-or-v1-..."
-          onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
-        />
+        <div className="key-input-row">
+          <input
+            type="password"
+            value={settings.apiKey}
+            placeholder="sk-or-v1-..."
+            onChange={(event) => setSettings((current) => ({ ...current, apiKey: event.target.value }))}
+          />
+          <button type="button" className="clear-key-button" onClick={onClearKey} disabled={!settings.apiKey.trim()} aria-label="Clear saved OpenRouter key">
+            <Trash2 size={15} />
+            Clear
+          </button>
+        </div>
       </label>
       <label>
         <span>Model</span>
