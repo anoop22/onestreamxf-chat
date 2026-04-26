@@ -48,6 +48,11 @@ export function clearSavedApiKey(): void {
 
 export function loadMessages(): ChatMessage[] {
   try {
+    if (shouldClearMessagesFromUrl()) {
+      clearSavedMessages();
+      return [];
+    }
+
     const raw = localStorage.getItem(MESSAGES_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
@@ -63,4 +68,15 @@ export function saveMessages(messages: ChatMessage[]): void {
 
 export function clearSavedMessages(): void {
   localStorage.removeItem(MESSAGES_KEY);
+}
+
+function shouldClearMessagesFromUrl(): boolean {
+  const url = new URL(window.location.href);
+  const shouldClear = url.searchParams.get("clearChat") === "1" || url.searchParams.get("clearMessages") === "1";
+  if (!shouldClear) return false;
+
+  url.searchParams.delete("clearChat");
+  url.searchParams.delete("clearMessages");
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  return true;
 }
