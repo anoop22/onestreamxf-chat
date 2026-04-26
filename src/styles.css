@@ -190,6 +190,11 @@ button {
   overflow-wrap: anywhere;
 }
 
+.sidebar-primary-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .sidebar-actions {
   margin-top: auto;
   display: grid;

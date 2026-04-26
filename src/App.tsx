@@ -406,6 +406,13 @@ export function App() {
           </div>
         </div>
 
+        <div className="sidebar-primary-actions">
+          <button type="button" onClick={startNewChat} className="secondary-button">
+            <Plus size={16} />
+            New Chat
+          </button>
+        </div>
+
         <div className={`status-box ${skillState.status}`}>
           <div className="status-line">
             {skillState.status === "loading" ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}
@@ -431,10 +438,6 @@ export function App() {
         </div>
 
         <div className="sidebar-actions">
-          <button type="button" onClick={startNewChat} className="secondary-button">
-            <Plus size={16} />
-            New Chat
-          </button>
           <a className="secondary-button" href="https://github.com/anoop22/onestreamxf-skill" target="_blank" rel="noreferrer">
             <GitBranch size={16} />
             Skill Repo
