@@ -19,6 +19,8 @@ const FALLBACK_FILES = [
   "10-public-web-resources.md",
 ];
 
+const META_DOC_PATHS = new Set(["README.md", "SKILL.md", "9-retrieval-rules.md"]);
+
 type GitHubContent = {
   name: string;
   path: string;
@@ -99,6 +101,19 @@ export function buildSkillOverview(docs: SkillDoc[]): string {
 }
 
 export function searchSkill(docs: SkillDoc[], query: string, maxResults = 5): SearchHit[] {
+  return searchDocs(docs, query, maxResults);
+}
+
+export function searchAnswerEvidence(docs: SkillDoc[], query: string, maxResults = 5): SearchHit[] {
+  const topicalDocs = docs.filter((doc) => !isMetaSkillDoc(doc.path));
+  return searchDocs(topicalDocs, query, maxResults);
+}
+
+export function isMetaSkillDoc(path: string): boolean {
+  return META_DOC_PATHS.has(path);
+}
+
+function searchDocs(docs: SkillDoc[], query: string, maxResults = 5): SearchHit[] {
   const normalized = normalize(query);
   const queryTokens = tokenize(query);
   if (!normalized && queryTokens.length === 0) return [];

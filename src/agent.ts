@@ -1,6 +1,6 @@
 import { Agent, type AgentTool } from "@mariozechner/pi-agent-core";
 import { getModel, streamSimple, Type } from "@mariozechner/pi-ai";
-import { buildSkillOverview, searchSkill } from "./skillLoader";
+import { buildSkillOverview, searchAnswerEvidence } from "./skillLoader";
 import type { AppSettings, SearchHit, SkillDoc, WebSearchHit } from "./types";
 import { searchPublicWeb } from "./webSearch";
 
@@ -135,10 +135,10 @@ function createSkillSearchTool(docs: SkillDoc[]): AgentTool<typeof SkillSearchPa
       };
     },
     execute: async (_toolCallId, params) => {
-      const hits = searchSkill(docs, [params.query, params.focus].filter(Boolean).join(" "), params.max_results ?? 4);
+      const hits = searchAnswerEvidence(docs, [params.query, params.focus].filter(Boolean).join(" "), params.max_results ?? 4);
       const text =
         hits.length === 0
-          ? "No matching OneStream skill sections were found. Try a broader query or search for exact API/member names."
+          ? "No matching topical OneStream skill sections were found. Try one broader topic query, use public web search when enabled, or state that the available evidence is insufficient."
           : hits
               .map(
                 (hit, index) =>

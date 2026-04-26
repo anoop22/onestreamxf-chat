@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createOneStreamAgent } from "./agent";
-import { loadOneStreamSkill, searchSkill } from "./skillLoader";
+import { loadOneStreamSkill, searchAnswerEvidence } from "./skillLoader";
 import { renderMarkdown } from "./markdown";
 import {
   clearSavedApiKey,
@@ -175,10 +175,10 @@ export function App() {
   }
 
   async function buildGroundingContext(question: string): Promise<{ prompt: string }> {
-    const skillHits = searchSkill(skillDocs, question, 5);
+    const skillHits = searchAnswerEvidence(skillDocs, question, 5);
     addActivity(
       "tool",
-      `Grounded with ${skillHits.length} skill hits`,
+      `Grounded with ${skillHits.length} topical skill hits`,
       summarizeGroundingSkillHits(skillHits),
     );
 
@@ -553,7 +553,7 @@ function buildGroundedPrompt(question: string, skillHits: SearchHit[], webHits: 
             ].join("\n"),
         )
         .join("\n\n")
-    : "No matching skill sections were found.";
+    : "No matching topical skill sections were found. The agent may use search_onestream_skill once or twice, then must say when evidence is insufficient.";
 
   const webContext = webHits.length
     ? webHits
