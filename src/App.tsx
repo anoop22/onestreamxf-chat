@@ -14,6 +14,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  Square,
   Trash2,
 } from "lucide-react";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -38,6 +39,7 @@ const SAMPLE_PROMPTS = [
 ];
 
 const MAX_REASONING_CHARS = 1400;
+const RUN_TIMEOUT_MS = 45_000;
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -58,6 +60,10 @@ export function App() {
   const activeReasoningIdRef = useRef<string | null>(null);
   const activeReasoningTextRef = useRef("");
   const assistantTextSeenRef = useRef(new Set<string>());
+  const currentAssistantIdRef = useRef<string | null>(null);
+  const runTimeoutRef = useRef<number | null>(null);
+  const runStoppedRef = useRef(false);
+  const stopNoticeShownRef = useRef(false);
 
   useEffect(() => {
     saveSettings(settings);
@@ -128,6 +134,9 @@ export function App() {
     activeReasoningIdRef.current = null;
     activeReasoningTextRef.current = "";
     assistantTextSeenRef.current.delete(assistantId);
+    currentAssistantIdRef.current = assistantId;
+    runStoppedRef.current = false;
+    stopNoticeShownRef.current = false;
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput("");
     setIsRunning(true);
@@ -135,15 +144,25 @@ export function App() {
 
     const agent = getAgent(history);
     const unsubscribe = agent.subscribe((agentEvent) => handleAgentEvent(agentEvent, assistantId));
+    runTimeoutRef.current = window.setTimeout(() => {
+      stopCurrentRun(`Stopped automatically after ${RUN_TIMEOUT_MS / 1000} seconds to limit OpenRouter usage.`);
+    }, RUN_TIMEOUT_MS);
 
     try {
       await agent.prompt(question);
       await agent.waitForIdle();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      addActivity("error", "Agent run failed", message);
-      appendAssistantText(assistantId, `\n\nError: ${message}`);
+      if (!runStoppedRef.current) {
+        addActivity("error", "Agent run failed", message);
+        appendAssistantText(assistantId, `\n\nError: ${message}`);
+      }
     } finally {
+      if (runTimeoutRef.current) {
+        window.clearTimeout(runTimeoutRef.current);
+        runTimeoutRef.current = null;
+      }
+      currentAssistantIdRef.current = null;
       unsubscribe();
       setIsRunning(false);
     }
@@ -207,6 +226,25 @@ export function App() {
     );
   }
 
+  function stopCurrentRun(reason = "Stopped by user.") {
+    if (!agentRef.current) return;
+    runStoppedRef.current = true;
+
+    if (runTimeoutRef.current) {
+      window.clearTimeout(runTimeoutRef.current);
+      runTimeoutRef.current = null;
+    }
+
+    agentRef.current.abort();
+    addActivity("error", "Run stopped", reason);
+
+    const assistantId = currentAssistantIdRef.current;
+    if (assistantId && !stopNoticeShownRef.current) {
+      stopNoticeShownRef.current = true;
+      appendAssistantText(assistantId, `\n\nStopped. ${reason}`);
+    }
+  }
+
   function appendReasoningDelta(delta: string) {
     const cleanDelta = delta.replace(/\s+/g, " ");
     if (!cleanDelta.trim()) return;
@@ -253,6 +291,13 @@ export function App() {
     activeReasoningIdRef.current = null;
     activeReasoningTextRef.current = "";
     assistantTextSeenRef.current.clear();
+    currentAssistantIdRef.current = null;
+    runStoppedRef.current = false;
+    stopNoticeShownRef.current = false;
+    if (runTimeoutRef.current) {
+      window.clearTimeout(runTimeoutRef.current);
+      runTimeoutRef.current = null;
+    }
     setMessages([]);
     setActivity([]);
     clearSavedMessages();
@@ -291,6 +336,13 @@ export function App() {
     activeReasoningIdRef.current = null;
     activeReasoningTextRef.current = "";
     assistantTextSeenRef.current.clear();
+    currentAssistantIdRef.current = null;
+    runStoppedRef.current = false;
+    stopNoticeShownRef.current = false;
+    if (runTimeoutRef.current) {
+      window.clearTimeout(runTimeoutRef.current);
+      runTimeoutRef.current = null;
+    }
     setSettings((current) => ({ ...current, apiKey: "" }));
     setSettingsOpen(true);
     addActivity("skill", "OpenRouter key cleared", "The saved API key was removed from this browser.");
@@ -413,9 +465,14 @@ export function App() {
             rows={2}
             onKeyDown={handleComposerKeyDown}
           />
-          <button type="submit" disabled={!canAsk || !input.trim()}>
-            {isRunning ? <Loader2 className="spin" size={18} /> : <Send size={18} />}
-            Ask
+          <button
+            type={isRunning ? "button" : "submit"}
+            className={isRunning ? "stop-button" : ""}
+            disabled={!isRunning && (!canAsk || !input.trim())}
+            onClick={isRunning ? () => stopCurrentRun() : undefined}
+          >
+            {isRunning ? <Square size={17} /> : <Send size={18} />}
+            {isRunning ? "Stop" : "Ask"}
           </button>
         </form>
       </main>

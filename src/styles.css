@@ -503,6 +503,11 @@ button {
   font-weight: 800;
 }
 
+.composer button.stop-button {
+  border-color: #b42318;
+  background: #b42318;
+}
+
 .composer button:disabled,
 .prompt-grid button:disabled {
   opacity: 0.55;

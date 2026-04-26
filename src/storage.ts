@@ -6,7 +6,7 @@ const MESSAGES_KEY = "onestreamxf-chat:messages";
 export const DEFAULT_SETTINGS: AppSettings = {
   apiKey: "",
   model: "openrouter/free",
-  thinkingLevel: "medium",
+  thinkingLevel: "low",
   enterToSend: true,
 };
 

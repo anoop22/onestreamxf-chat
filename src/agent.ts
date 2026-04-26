@@ -42,9 +42,12 @@ You answer questions about OneStream XF, especially Cube Views, Dashboards, Busi
 Behavior:
 - Treat the loaded onestreamxf skill as your primary reference material.
 - For OneStream-specific questions, use the search_onestream_skill tool before finalizing the answer.
-- For difficult questions, search more than once: use one query for exact API/class/member names and another query for the business concept.
+- Use at most two search_onestream_skill calls per user message: one exact identifier/API query and, only if needed, one broader concept query.
+- Do not repeat a failed search with tiny wording changes. If the first two searches are imperfect, synthesize from the best available hits and state the caveat.
+- Request no more than 6 search results. Prefer 4 when the query is narrow.
 - Synthesize across skill hits instead of parroting a single excerpt.
-- Give a complete practical answer: what to do, why, where it runs, pitfalls, and how to validate.
+- Give a complete but bounded practical answer: what to do, why, where it runs, pitfalls, and how to validate.
+- Keep normal answers under about 900 words unless the user explicitly asks for a deep dive.
 - Cite the relevant skill documents or public reference links when useful.
 - If the skill material does not prove something, say what must be verified in the customer application or OneStream version.
 - Never invent exact method signatures, enum values, or BRApi paths when the skill does not support them.
@@ -59,8 +62,20 @@ function createSkillSearchTool(docs: SkillDoc[]): AgentTool<typeof SkillSearchPa
     description:
       "Search the loaded public OneStream XF skill documents by concept, API name, dashboard/cube-view term, Business Rule pattern, or troubleshooting phrase.",
     parameters: SkillSearchParams,
+    prepareArguments: (args) => {
+      const raw = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+      const query = typeof raw.query === "string" && raw.query.trim() ? raw.query.trim() : "OneStream XF";
+      const focus = typeof raw.focus === "string" && raw.focus.trim() ? raw.focus.trim() : undefined;
+      const maxResults = typeof raw.max_results === "number" ? raw.max_results : Number(raw.max_results);
+
+      return {
+        query,
+        ...(focus ? { focus } : {}),
+        max_results: clampNumber(Number.isFinite(maxResults) ? maxResults : 4, 1, 6),
+      };
+    },
     execute: async (_toolCallId, params) => {
-      const hits = searchSkill(docs, [params.query, params.focus].filter(Boolean).join(" "), params.max_results ?? 5);
+      const hits = searchSkill(docs, [params.query, params.focus].filter(Boolean).join(" "), params.max_results ?? 4);
       const text =
         hits.length === 0
           ? "No matching OneStream skill sections were found. Try a broader query or search for exact API/member names."
@@ -98,9 +113,13 @@ const SkillSearchParams = Type.Object({
   ),
   max_results: Type.Optional(
     Type.Number({
-      description: "Maximum number of sections to return, from 1 to 8. Default is 5.",
+      description: "Maximum number of sections to return, from 1 to 6. Default is 4.",
       minimum: 1,
-      maximum: 8,
+      maximum: 6,
     }),
   ),
 });
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}

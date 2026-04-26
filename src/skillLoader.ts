@@ -212,7 +212,8 @@ function countOccurrences(value: string, token: string): number {
 
 function makeExcerpt(body: string, queryTokens: string[]): string {
   const compact = body.replace(/\s+/g, " ").trim();
-  if (compact.length <= 900) return compact;
+  const excerptLimit = 560;
+  if (compact.length <= excerptLimit) return compact;
 
   const lower = compact.toLowerCase();
   const hitIndex = queryTokens
@@ -221,11 +222,11 @@ function makeExcerpt(body: string, queryTokens: string[]): string {
     .sort((a, b) => a - b)[0];
 
   if (hitIndex === undefined) {
-    return `${compact.slice(0, 900).trim()}...`;
+    return `${compact.slice(0, excerptLimit).trim()}...`;
   }
 
-  const start = Math.max(0, hitIndex - 240);
-  const end = Math.min(compact.length, start + 900);
+  const start = Math.max(0, hitIndex - 180);
+  const end = Math.min(compact.length, start + excerptLimit);
   const prefix = start > 0 ? "..." : "";
   const suffix = end < compact.length ? "..." : "";
   return `${prefix}${compact.slice(start, end).trim()}${suffix}`;
