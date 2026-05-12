@@ -7,8 +7,10 @@ import {
   GitBranch,
   KeyRound,
   Loader2,
+  Mic,
   PanelRightOpen,
   Plus,
+  Radio,
   RefreshCw,
   Search,
   Send,
@@ -40,6 +42,76 @@ const SAMPLE_PROMPTS = [
 ];
 
 const MAX_REASONING_CHARS = 1400;
+const GEMINI_KEY_STORAGE = "pdfCompanionGeminiApiKey";
+const GEMINI_MODEL_STORAGE = "codexRagCompanionLiveModel";
+const GEMINI_VOICE_STORAGE = "codexRagCompanionVoice";
+const GEMINI_DEPTH_STORAGE = "codexRagCompanionAnswerDepth";
+const GEMINI_THINKING_STORAGE = "codexRagCompanionThinkingLevel";
+const DEFAULT_ANSWER_VOICE_STATE: AnswerVoiceState = {
+  activeMessageId: "",
+  connectionState: "idle",
+  mode: "on-demand",
+  voiceState: "idle",
+  isModelSpeaking: false,
+  isUserSpeaking: false,
+  isAwaitingModelResponse: false,
+  hasGeminiKey: false,
+  focusPreview: "",
+};
+
+type AnswerVoiceMode = "on-demand" | "live";
+
+type AnswerVoiceState = {
+  activeMessageId: string;
+  connectionState: string;
+  mode: AnswerVoiceMode;
+  voiceState: string;
+  isModelSpeaking: boolean;
+  isUserSpeaking: boolean;
+  isAwaitingModelResponse: boolean;
+  hasGeminiKey: boolean;
+  focusPreview: string;
+};
+
+type AnswerVoiceContext = {
+  id: string;
+  question: string;
+  answer: string;
+  conversation: string;
+  skillSummary: string;
+  pageTitle: string;
+};
+
+type AnswerVoiceClient = {
+  start: (context: AnswerVoiceContext, mode: AnswerVoiceMode) => Promise<void>;
+  stop: () => Promise<void>;
+  reset?: () => Promise<void>;
+  interrupt: () => void;
+  setContext: (context: AnswerVoiceContext) => Promise<void>;
+  getState: () => AnswerVoiceState;
+  saveSettings: (settings: {
+    apiKey?: string;
+    model?: string;
+    voice?: string;
+    answerDepth?: string;
+    thinkingLevel?: string;
+  }) => void;
+  readSettings: () => {
+    hasKey: boolean;
+    model: string;
+    voice: string;
+    answerDepth: string;
+    thinkingLevel: string;
+  };
+  clearKey: () => Promise<void>;
+  isAvailable: () => boolean;
+};
+
+declare global {
+  interface Window {
+    OneStreamAnswerVoice?: AnswerVoiceClient;
+  }
+}
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
@@ -54,6 +126,9 @@ export function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(!loadSettings().apiKey);
   const [activityOpen, setActivityOpen] = useState(true);
+  const [answerVoiceState, setAnswerVoiceState] = useState<AnswerVoiceState>(() =>
+    window.OneStreamAnswerVoice?.getState?.() || DEFAULT_ANSWER_VOICE_STATE,
+  );
 
   const agentRef = useRef<Agent | null>(null);
   const agentKeyRef = useRef("");
@@ -64,6 +139,7 @@ export function App() {
   const runTimeoutRef = useRef<number | null>(null);
   const runStoppedRef = useRef(false);
   const stopNoticeShownRef = useRef(false);
+  const assistantTranscriptRef = useRef("");
 
   useEffect(() => {
     saveSettings(settings);
@@ -74,8 +150,30 @@ export function App() {
   }, [messages]);
 
   useEffect(() => {
+    const handleVoiceState = (event: Event) => {
+      const detail = (event as CustomEvent<AnswerVoiceState>).detail;
+      setAnswerVoiceState(detail || window.OneStreamAnswerVoice?.getState?.() || DEFAULT_ANSWER_VOICE_STATE);
+    };
+    window.addEventListener("onestreamxf:voice-state", handleVoiceState);
+    setAnswerVoiceState(window.OneStreamAnswerVoice?.getState?.() || DEFAULT_ANSWER_VOICE_STATE);
+    return () => window.removeEventListener("onestreamxf:voice-state", handleVoiceState);
+  }, []);
+
+  useEffect(() => {
+    appLog("app.settings.changed", {
+      model: settings.model,
+      thinkingLevel: settings.thinkingLevel,
+      autoStopSeconds: settings.autoStopSeconds,
+      publicWebSearch: settings.publicWebSearch,
+      enterToSend: settings.enterToSend,
+      hasOpenRouterKey: Boolean(settings.apiKey.trim()),
+    });
+  }, [settings.model, settings.thinkingLevel, settings.autoStopSeconds, settings.publicWebSearch, settings.enterToSend, settings.apiKey]);
+
+  useEffect(() => {
     const controller = new AbortController();
     setSkillState({ status: "loading", docs: [], message: "Loading OneStream XF skill from GitHub..." });
+    appLog("app.skill.load_started", {});
     loadOneStreamSkill(controller.signal)
       .then((docs) => {
         setSkillState({
@@ -84,12 +182,14 @@ export function App() {
           message: `Loaded ${docs.length} public skill documents from anoop22/onestreamxf-skill.`,
         });
         addActivity("skill", "OneStream skill loaded", `${docs.length} Markdown documents are available to the agent.`);
+        appLog("app.skill.loaded", { documentCount: docs.length });
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
         const message = error instanceof Error ? error.message : String(error);
         setSkillState({ status: "error", docs: [], message });
         addActivity("error", "Skill load failed", message);
+        appLog("app.skill.load_failed", { message });
       });
 
     return () => controller.abort();
@@ -100,6 +200,18 @@ export function App() {
   const skillDocs = skillState.docs;
   const docsByPath = useMemo(() => new Map(skillDocs.map((doc) => [doc.path, doc])), [skillDocs]);
 
+  function truncateForLog(value: unknown, limit = 900): string {
+    return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+  }
+
+  function appLog(_type: string, _payload: Record<string, unknown> = {}) {
+    // Reserved for optional local diagnostics.
+  }
+
+  function appTranscript(_role: string, _text: string, _payload: Record<string, unknown> = {}) {
+    // Reserved for optional local diagnostics.
+  }
+
   async function handleSubmit(event?: FormEvent | KeyboardEvent<HTMLTextAreaElement>, forcedPrompt?: string) {
     event?.preventDefault();
     const question = (forcedPrompt ?? input).trim();
@@ -108,11 +220,13 @@ export function App() {
     if (!settings.apiKey.trim()) {
       setSettingsOpen(true);
       addActivity("error", "OpenRouter key needed", "Enter an OpenRouter API key. It stays in this browser and is sent only to OpenRouter.");
+      appLog("app.chat.submit_blocked", { reason: "missing_openrouter_key", questionPreview: truncateForLog(question, 900) });
       return;
     }
 
     if (skillState.status !== "ready") {
       addActivity("error", "Skill not ready", skillState.message);
+      appLog("app.chat.submit_blocked", { reason: "skill_not_ready", skillStatus: skillState.status, questionPreview: truncateForLog(question, 900) });
       return;
     }
 
@@ -135,12 +249,24 @@ export function App() {
     activeReasoningTextRef.current = "";
     assistantTextSeenRef.current.delete(assistantId);
     currentAssistantIdRef.current = assistantId;
+    assistantTranscriptRef.current = "";
     runStoppedRef.current = false;
     stopNoticeShownRef.current = false;
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput("");
     setIsRunning(true);
     addActivity("thinking", "Grounding with OneStream skill", "Retrieving supporting skill sections before the model answers.");
+    appLog("app.chat.submit", {
+      questionPreview: truncateForLog(question, 1600),
+      forcedPrompt: Boolean(forcedPrompt),
+      messageCountBeforeSubmit: history.length,
+      settings: {
+        model: settings.model,
+        thinkingLevel: settings.thinkingLevel,
+        publicWebSearch: settings.publicWebSearch,
+      },
+    });
+    appTranscript("user", question, { surface: "chat", forcedPrompt: Boolean(forcedPrompt) });
 
     const grounding = await buildGroundingContext(question);
 
@@ -161,9 +287,13 @@ export function App() {
       const message = error instanceof Error ? error.message : String(error);
       if (!runStoppedRef.current) {
         addActivity("error", "Agent run failed", message);
+        appLog("app.agent.run_failed", { message });
         appendAssistantText(assistantId, `\n\nError: ${message}`);
       }
     } finally {
+      if (assistantTranscriptRef.current.trim()) {
+        appTranscript("assistant", assistantTranscriptRef.current, { surface: "chat", assistantId });
+      }
       if (runTimeoutRef.current) {
         window.clearTimeout(runTimeoutRef.current);
         runTimeoutRef.current = null;
@@ -181,16 +311,26 @@ export function App() {
       `Grounded with ${skillHits.length} topical skill hits`,
       summarizeGroundingSkillHits(skillHits),
     );
+    appLog("app.grounding.skill_hits", {
+      count: skillHits.length,
+      hits: skillHits.map((hit) => ({ path: hit.path, heading: hit.heading, score: hit.score })),
+    });
 
     let webHits: WebSearchHit[] = [];
     if (settings.publicWebSearch) {
       addActivity("tool", "Searching public web", question);
+      appLog("app.grounding.web_search_started", { questionPreview: truncateForLog(question, 900) });
       try {
         webHits = await searchPublicWeb(question, { maxResults: 4 });
         addActivity("tool", `Public web search returned ${webHits.length} results`, summarizeGroundingWebHits(webHits));
+        appLog("app.grounding.web_hits", {
+          count: webHits.length,
+          hits: webHits.map((hit) => ({ title: hit.title, source: hit.source, url: hit.url })),
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         addActivity("error", "Public web search failed", message);
+        appLog("app.grounding.web_search_failed", { message });
       }
     }
 
@@ -203,6 +343,12 @@ export function App() {
     if (!agentRef.current || agentKeyRef.current !== key) {
       agentRef.current = createOneStreamAgent(settings, skillDocs);
       agentKeyRef.current = key;
+      appLog("app.agent.created", {
+        model: settings.model,
+        thinkingLevel: settings.thinkingLevel,
+        publicWebSearch: settings.publicWebSearch,
+        documentCount: skillDocs.length,
+      });
     }
     agentRef.current.state.messages = toAgentMessages(history);
     return agentRef.current;
@@ -220,11 +366,19 @@ export function App() {
       }
       if (assistantEvent.type === "toolcall_end") {
         addActivity("tool", "Tool selected", `${assistantEvent.toolCall.name} ${JSON.stringify(assistantEvent.toolCall.arguments)}`);
+        appLog("app.agent.tool_selected", {
+          name: assistantEvent.toolCall.name,
+          arguments: assistantEvent.toolCall.arguments as Record<string, unknown>,
+        });
       }
     }
 
     if (event.type === "tool_execution_start") {
       addActivity("tool", toolActivityTitle(event.toolName, true), summarizeToolArgs(event.args));
+      appLog("app.agent.tool_start", {
+        toolName: event.toolName,
+        args: event.args as Record<string, unknown>,
+      });
     }
 
     if (event.type === "tool_execution_end") {
@@ -234,6 +388,11 @@ export function App() {
         event.isError ? "Tool error" : toolActivityTitle(event.toolName, false, hits.length),
         summarizeToolHits(event.toolName, hits),
       );
+      appLog("app.agent.tool_end", {
+        toolName: event.toolName,
+        isError: event.isError,
+        hitCount: hits.length,
+      });
     }
 
     if (event.type === "agent_end") {
@@ -241,13 +400,22 @@ export function App() {
       activeReasoningTextRef.current = "";
       if (assistantTextSeenRef.current.has(assistantId)) {
         addActivity("answer", "Answer complete", "The final response has been streamed into the chat.");
+        appLog("app.agent.answer_complete", {
+          assistantId,
+          answerPreview: truncateForLog(assistantTranscriptRef.current, 1600),
+          answerChars: assistantTranscriptRef.current.length,
+        });
       } else {
         addActivity("error", "No final answer text", "The model run ended without producing visible answer text. Try again with Thinking set to Off or Low.");
+        appLog("app.agent.no_final_answer", { assistantId });
       }
     }
   }
 
   function appendAssistantText(assistantId: string, delta: string) {
+    if (assistantId === currentAssistantIdRef.current) {
+      assistantTranscriptRef.current = `${assistantTranscriptRef.current}${delta}`;
+    }
     setMessages((current) =>
       current.map((message) =>
         message.id === assistantId ? { ...message, content: `${message.content}${delta}` } : message,
@@ -266,6 +434,7 @@ export function App() {
 
     agentRef.current.abort();
     addActivity("error", "Run stopped", reason);
+    appLog("app.agent.run_stopped", { reason });
 
     const assistantId = currentAssistantIdRef.current;
     if (assistantId && !stopNoticeShownRef.current) {
@@ -314,6 +483,7 @@ export function App() {
   }
 
   function startNewChat() {
+    resetAnswerVoice("new_chat");
     agentRef.current?.reset();
     agentRef.current = null;
     agentKeyRef.current = "";
@@ -330,12 +500,14 @@ export function App() {
     setMessages([]);
     setActivity([]);
     clearSavedMessages();
+    appLog("app.chat.new_chat", {});
   }
 
   function reloadSkill() {
     agentRef.current = null;
     agentKeyRef.current = "";
     setSkillState({ status: "loading", docs: [], message: "Reloading OneStream XF skill from GitHub..." });
+    appLog("app.skill.reload_started", {});
     loadOneStreamSkill()
       .then((docs) => {
         setSkillState({
@@ -344,11 +516,13 @@ export function App() {
           message: `Loaded ${docs.length} public skill documents from anoop22/onestreamxf-skill.`,
         });
         addActivity("skill", "OneStream skill reloaded", `${docs.length} Markdown documents are now available.`);
+        appLog("app.skill.reloaded", { documentCount: docs.length });
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
         setSkillState({ status: "error", docs: [], message });
         addActivity("error", "Skill reload failed", message);
+        appLog("app.skill.reload_failed", { message });
       });
   }
 
@@ -375,6 +549,7 @@ export function App() {
     setSettings((current) => ({ ...current, apiKey: "" }));
     setSettingsOpen(true);
     addActivity("skill", "OpenRouter key cleared", "The saved API key was removed from this browser.");
+    appLog("app.settings.api_key_cleared", {});
     return true;
   }
 
@@ -390,6 +565,76 @@ export function App() {
     if (event.metaKey || event.ctrlKey) {
       event.preventDefault();
       handleSubmit(event);
+    }
+  }
+
+  function buildAnswerVoiceContext(message: ChatMessage, index: number): AnswerVoiceContext {
+    const priorUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user")?.content || "";
+    return {
+      id: message.id,
+      question: priorUser,
+      answer: message.content,
+      conversation: summarizeConversationForVoice(messages, index),
+      skillSummary: skillDocs.map((doc) => `${doc.path}: ${doc.title} (${doc.url})`).join("\n"),
+      pageTitle: document.title,
+    };
+  }
+
+  async function handleAnswerVoice(message: ChatMessage, index: number, mode: AnswerVoiceMode) {
+    if (!window.OneStreamAnswerVoice) {
+      addActivity("error", "Voice module unavailable", "Reload the page so the Gemini answer voice module can load.");
+      appLog("app.voice.module_missing", { answerId: message.id, mode });
+      return;
+    }
+
+    const isActive =
+      answerVoiceState.activeMessageId === message.id &&
+      answerVoiceState.mode === mode &&
+      ["connecting", "connected"].includes(answerVoiceState.connectionState);
+
+    if (isActive) {
+      appLog("app.voice.answer_control_stop", { answerId: message.id, mode });
+      await window.OneStreamAnswerVoice.stop();
+      return;
+    }
+
+    const context = buildAnswerVoiceContext(message, index);
+    appLog("app.voice.answer_control_click", {
+      answerId: message.id,
+      mode,
+      answerPreview: truncateForLog(message.content, 1200),
+      questionPreview: truncateForLog(context.question, 900),
+      hasGeminiKey: answerVoiceState.hasGeminiKey || Boolean(localStorage.getItem(GEMINI_KEY_STORAGE)),
+    });
+    await window.OneStreamAnswerVoice.start(context, mode);
+  }
+
+  function resetAnswerVoice(reason: string) {
+    const voiceClient = window.OneStreamAnswerVoice;
+    if (!voiceClient) return;
+    appLog("app.voice.reset_requested", { reason });
+    const resetPromise = voiceClient.reset ? voiceClient.reset() : voiceClient.stop();
+    resetPromise.catch((error) => {
+      appLog("app.voice.reset_failed", {
+        reason,
+        message: truncateForLog(error instanceof Error ? error.message : String(error), 900),
+      });
+    });
+  }
+
+  async function stopAnswerVoiceFromIndicator() {
+    if (!window.OneStreamAnswerVoice) return;
+    appLog("app.voice.global_indicator_stop", {
+      activeMessageId: answerVoiceState.activeMessageId,
+      mode: answerVoiceState.mode,
+      connectionState: answerVoiceState.connectionState,
+    });
+    try {
+      await window.OneStreamAnswerVoice.stop();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addActivity("error", "Voice stop failed", message);
+      appLog("app.voice.global_indicator_stop_failed", { message: truncateForLog(message, 900) });
     }
   }
 
@@ -455,6 +700,7 @@ export function App() {
             <h2>Ask a OneStream-specific question</h2>
           </div>
           <div className="topbar-actions">
+            <VoiceSessionIndicator voiceState={answerVoiceState} onStop={stopAnswerVoiceFromIndicator} />
             <button type="button" className="icon-button" aria-label="Toggle activity" onClick={() => setActivityOpen((open) => !open)}>
               <PanelRightOpen size={18} />
             </button>
@@ -484,8 +730,15 @@ export function App() {
             </div>
           )}
 
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} isStreaming={isRunning && message.role === "assistant" && !message.content} />
+          {messages.map((message, index) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              index={index}
+              isStreaming={isRunning && message.role === "assistant" && !message.content}
+              voiceState={answerVoiceState}
+              onVoiceMode={(mode) => handleAnswerVoice(message, index, mode)}
+            />
           ))}
         </div>
 
@@ -514,6 +767,7 @@ export function App() {
   );
 
   function addActivity(kind: ActivityItem["kind"], title: string, body?: string) {
+    appLog("app.activity", { kind, title, body: truncateForLog(body || "", 1000) });
     setActivity((current) =>
       [
         {
@@ -539,6 +793,14 @@ function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds} seconds`;
   const minutes = seconds / 60;
   return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
+
+function summarizeConversationForVoice(messages: ChatMessage[], currentIndex: number): string {
+  return messages
+    .slice(Math.max(0, currentIndex - 8), currentIndex + 1)
+    .filter((message) => message.content.trim())
+    .map((message) => `${message.role === "user" ? "User" : "Assistant"}: ${message.content}`)
+    .join("\n\n");
 }
 
 function buildGroundedPrompt(question: string, skillHits: SearchHit[], webHits: WebSearchHit[]): string {
@@ -598,6 +860,61 @@ function buildGroundedPrompt(question: string, skillHits: SearchHit[], webHits: 
     "User question:",
     question,
   ].join("\n");
+}
+
+function readGeminiVoiceSettings() {
+  const moduleSettings = window.OneStreamAnswerVoice?.readSettings?.();
+  return {
+    hasKey: moduleSettings?.hasKey ?? Boolean(localStorage.getItem(GEMINI_KEY_STORAGE)),
+    model: moduleSettings?.model || localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-3.1-flash-live-preview",
+    voice: moduleSettings?.voice || localStorage.getItem(GEMINI_VOICE_STORAGE) || "Zephyr",
+    answerDepth: moduleSettings?.answerDepth || localStorage.getItem(GEMINI_DEPTH_STORAGE) || "balanced",
+    thinkingLevel: moduleSettings?.thinkingLevel || localStorage.getItem(GEMINI_THINKING_STORAGE) || "medium",
+  };
+}
+
+function VoiceSessionIndicator({
+  voiceState,
+  onStop,
+}: {
+  voiceState: AnswerVoiceState;
+  onStop: () => void;
+}) {
+  const isActive = ["connecting", "connected"].includes(voiceState.connectionState);
+  if (!isActive) return null;
+
+  const modeCopy = voiceState.mode === "live" ? "Live audio on" : "On-demand voice on";
+  const detailCopy =
+    voiceState.voiceState === "speaking"
+      ? "Gemini speaking"
+      : voiceState.voiceState === "thinking"
+        ? "Gemini thinking"
+        : voiceState.voiceState === "listening"
+          ? "Listening"
+          : voiceState.voiceState === "connecting"
+            ? "Connecting"
+            : "Ready";
+
+  return (
+    <div
+      className="voice-session-indicator"
+      data-state={voiceState.voiceState}
+      data-mode={voiceState.mode}
+      aria-live="polite"
+      title={`${modeCopy}: ${detailCopy}`}
+    >
+      <span className="voice-session-dot" aria-hidden="true" />
+      <span className="voice-session-main">
+        {voiceState.mode === "live" ? <Radio size={14} /> : <Mic size={14} />}
+        <span>{modeCopy}</span>
+      </span>
+      <span className="voice-session-detail">{detailCopy}</span>
+      <button type="button" onClick={onStop} title="Stop Gemini voice">
+        <Square size={12} />
+        Stop
+      </button>
+    </div>
+  );
 }
 
 function SettingsPanel({
@@ -736,29 +1053,248 @@ function SettingsPanel({
         />
         <span>Enter sends, Shift+Enter adds a line</span>
       </label>
+      <GeminiVoiceSettingsPanel />
       <p>
-        The key is stored in this browser only. GitHub Pages serves static files; model calls go directly from your browser to OpenRouter.
-        Public web search sends focused OneStream queries to DuckDuckGo through AllOrigins.
+        Keys are stored in this browser only. Text model calls go directly to OpenRouter, voice calls go directly to Gemini Live, and public web
+        search sends focused OneStream queries to DuckDuckGo through AllOrigins.
       </p>
     </section>
   );
 }
 
-function MessageBubble({ message, isStreaming }: { message: ChatMessage; isStreaming: boolean }) {
-  const html = useMemo(() => renderMarkdown(message.content), [message.content]);
+function GeminiVoiceSettingsPanel() {
+  const [draftKey, setDraftKey] = useState("");
+  const [appliedFlash, setAppliedFlash] = useState(false);
+  const [settings, setSettings] = useState(() => readGeminiVoiceSettings());
+
+  useEffect(() => {
+    const sync = () => setSettings(readGeminiVoiceSettings());
+    window.addEventListener("onestreamxf:voice-state", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("onestreamxf:voice-state", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  function persist(next: Partial<typeof settings> & { apiKey?: string }) {
+    const merged = { ...settings, ...next };
+    if (window.OneStreamAnswerVoice) {
+      window.OneStreamAnswerVoice.saveSettings({
+        apiKey: next.apiKey,
+        model: merged.model,
+        voice: merged.voice,
+        answerDepth: merged.answerDepth,
+        thinkingLevel: merged.thinkingLevel,
+      });
+    } else {
+      if (next.apiKey) localStorage.setItem(GEMINI_KEY_STORAGE, next.apiKey);
+      localStorage.setItem(GEMINI_MODEL_STORAGE, merged.model);
+      localStorage.setItem(GEMINI_VOICE_STORAGE, merged.voice);
+      localStorage.setItem(GEMINI_DEPTH_STORAGE, merged.answerDepth);
+      localStorage.setItem(GEMINI_THINKING_STORAGE, merged.thinkingLevel);
+    }
+    setSettings(readGeminiVoiceSettings());
+  }
+
+  function applyKey() {
+    const value = draftKey.trim();
+    if (!value) return;
+    persist({ apiKey: value });
+    setDraftKey("");
+    setAppliedFlash(true);
+    window.setTimeout(() => setAppliedFlash(false), 1600);
+  }
+
+  async function clearKey() {
+    if (window.OneStreamAnswerVoice) {
+      await window.OneStreamAnswerVoice.clearKey();
+    } else {
+      localStorage.removeItem(GEMINI_KEY_STORAGE);
+    }
+    setDraftKey("");
+    setAppliedFlash(false);
+    setSettings(readGeminiVoiceSettings());
+  }
+
   return (
-    <article className={`message ${message.role}`}>
+    <div className="settings-subsection gemini-voice-settings">
+      <div className="settings-subsection-title">
+        <Radio size={15} />
+        Gemini answer voice
+      </div>
+      <label>
+        <span>Gemini API key</span>
+        <div className="key-input-row">
+          <input
+            type="password"
+            value={draftKey}
+            placeholder={settings.hasKey ? "Saved Gemini key is hidden" : "Paste Gemini API key"}
+            autoComplete="off"
+            onChange={(event) => {
+              setDraftKey(event.target.value);
+              setAppliedFlash(false);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyKey();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={`apply-key-button ${appliedFlash || (settings.hasKey && !draftKey) ? "applied" : ""}`}
+            onClick={applyKey}
+            disabled={!draftKey.trim()}
+          >
+            {appliedFlash || (settings.hasKey && !draftKey) ? (
+              <>
+                <CheckCircle2 size={15} />
+                Applied
+              </>
+            ) : (
+              "Apply"
+            )}
+          </button>
+          <button type="button" className="clear-key-button" onClick={clearKey} disabled={!draftKey.trim() && !settings.hasKey} aria-label="Clear saved Gemini key">
+            <Trash2 size={15} />
+            Clear
+          </button>
+        </div>
+      </label>
+      <div className="settings-grid compact">
+        <label>
+          <span>Live model</span>
+          <select value={settings.model} onChange={(event) => persist({ model: event.target.value })}>
+            <option value="gemini-3.1-flash-live-preview">Gemini 3.1 Flash Live Preview</option>
+            <option value="gemini-2.5-flash-native-audio-preview-12-2025">Gemini 2.5 Flash Live Preview</option>
+            <option value="gemini-2.5-flash-native-audio-preview-09-2025">Gemini 2.5 Flash Live Preview Legacy</option>
+          </select>
+        </label>
+        <label>
+          <span>Voice</span>
+          <select value={settings.voice} onChange={(event) => persist({ voice: event.target.value })}>
+            <option value="Zephyr">Zephyr</option>
+            <option value="Puck">Puck</option>
+            <option value="Charon">Charon</option>
+            <option value="Kore">Kore</option>
+            <option value="Fenrir">Fenrir</option>
+            <option value="Aoede">Aoede</option>
+            <option value="Leda">Leda</option>
+            <option value="Orus">Orus</option>
+          </select>
+        </label>
+        <label>
+          <span>Answer depth</span>
+          <select value={settings.answerDepth} onChange={(event) => persist({ answerDepth: event.target.value })}>
+            <option value="concise">Concise</option>
+            <option value="balanced">Balanced</option>
+            <option value="deep">Deep</option>
+          </select>
+        </label>
+        <label>
+          <span>Thinking</span>
+          <select value={settings.thinkingLevel} onChange={(event) => persist({ thinkingLevel: event.target.value })}>
+            <option value="minimal">Minimal</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function MessageBubble({
+  message,
+  index,
+  isStreaming,
+  voiceState,
+  onVoiceMode,
+}: {
+  message: ChatMessage;
+  index: number;
+  isStreaming: boolean;
+  voiceState: AnswerVoiceState;
+  onVoiceMode: (mode: AnswerVoiceMode) => void;
+}) {
+  const html = useMemo(() => renderMarkdown(message.content), [message.content]);
+  const showVoiceControls = message.role === "assistant" && Boolean(message.content.trim());
+  return (
+    <article className={`message ${message.role}`} data-message-index={index}>
       <div className="avatar">{message.role === "assistant" ? <Bot size={17} /> : "You"}</div>
-      <div className="bubble">
-        {isStreaming && (
-          <div className="thinking-placeholder">
-            <Loader2 className="spin" size={16} />
-            Reading the skill and preparing the answer...
-          </div>
-        )}
-        {message.content && <div className="rich-text" dangerouslySetInnerHTML={{ __html: html }} />}
+      <div className="message-body">
+        <div className="bubble" data-answer-message-id={message.role === "assistant" ? message.id : undefined}>
+          {showVoiceControls && (
+            <AnswerVoiceControls message={message} voiceState={voiceState} onVoiceMode={onVoiceMode} />
+          )}
+          {isStreaming && (
+            <div className="thinking-placeholder">
+              <Loader2 className="spin" size={16} />
+              Reading the skill and preparing the answer...
+            </div>
+          )}
+          {message.content && <div className="rich-text" dangerouslySetInnerHTML={{ __html: html }} />}
+        </div>
       </div>
     </article>
+  );
+}
+
+function AnswerVoiceControls({
+  message,
+  voiceState,
+  onVoiceMode,
+}: {
+  message: ChatMessage;
+  voiceState: AnswerVoiceState;
+  onVoiceMode: (mode: AnswerVoiceMode) => void;
+}) {
+  const isThisAnswer = voiceState.activeMessageId === message.id;
+  const isBusy = isThisAnswer && voiceState.connectionState === "connecting";
+  const isOnDemandActive =
+    isThisAnswer && voiceState.mode === "on-demand" && ["connecting", "connected"].includes(voiceState.connectionState);
+  const isLiveActive =
+    isThisAnswer && voiceState.mode === "live" && ["connecting", "connected"].includes(voiceState.connectionState);
+  const activeCopy =
+    voiceState.voiceState === "speaking"
+      ? "Gemini speaking"
+      : voiceState.voiceState === "thinking"
+        ? "Gemini thinking"
+        : voiceState.voiceState === "listening"
+          ? "Listening"
+          : voiceState.connectionState;
+
+  return (
+    <div className="answer-voice-controls" aria-label="Answer voice controls">
+      {isThisAnswer && ["connecting", "connected"].includes(voiceState.connectionState) && (
+        <span className="answer-voice-status">{activeCopy}</span>
+      )}
+      <button
+        type="button"
+        className="answer-voice-button"
+        data-active={isOnDemandActive}
+        disabled={isBusy && !isOnDemandActive}
+        onClick={() => onVoiceMode("on-demand")}
+        title="Start on-demand Gemini voice for this answer"
+      >
+        {isBusy && isOnDemandActive ? <Loader2 className="spin" size={14} /> : <Mic size={14} />}
+        {isOnDemandActive ? "Stop" : "On demand"}
+      </button>
+      <button
+        type="button"
+        className="answer-voice-button"
+        data-active={isLiveActive}
+        disabled={isBusy && !isLiveActive}
+        onClick={() => onVoiceMode("live")}
+        title="Start Gemini Live for this answer"
+      >
+        {isBusy && isLiveActive ? <Loader2 className="spin" size={14} /> : <Radio size={14} />}
+        {isLiveActive ? "Stop live" : "Live"}
+      </button>
+    </div>
   );
 }
 

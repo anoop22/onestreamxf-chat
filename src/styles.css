@@ -242,7 +242,79 @@ button {
 
 .topbar-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.voice-session-indicator {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid #a7d7c8;
+  border-radius: 999px;
+  background: #eefaf6;
+  color: #123b31;
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.12);
+}
+
+.voice-session-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #16a34a;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.16);
+}
+
+.voice-session-indicator[data-state="connecting"] .voice-session-dot,
+.voice-session-indicator[data-state="thinking"] .voice-session-dot {
+  background: #d97706;
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.16);
+}
+
+.voice-session-indicator[data-state="speaking"] .voice-session-dot {
+  background: #0284c7;
+  box-shadow: 0 0 0 4px rgba(2, 132, 199, 0.18);
+}
+
+.voice-session-main,
+.voice-session-indicator button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.voice-session-main {
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.voice-session-detail {
+  color: #4b665d;
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.voice-session-indicator button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid #b42318;
+  border-radius: 999px;
+  background: #fff7f6;
+  color: #9b2c1f;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.voice-session-indicator button:hover {
+  background: #b42318;
+  color: #ffffff;
 }
 
 .icon-button {
@@ -347,6 +419,34 @@ button {
   font-size: 12px;
 }
 
+.settings-subsection {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #dce5dd;
+  border-radius: 8px;
+  background: #f7fbfa;
+}
+
+.settings-subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .message-list {
   overflow: auto;
   padding: 22px;
@@ -406,6 +506,12 @@ button {
   max-width: 820px;
 }
 
+.message-body {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
 .avatar {
   width: 40px;
   height: 40px;
@@ -433,6 +539,62 @@ button {
 
 .message.user .bubble {
   background: #ffffff;
+}
+
+.answer-voice-controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  float: right;
+  max-width: min(100%, 430px);
+  margin: 0 0 10px 14px;
+}
+
+.answer-voice-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid #cfd9d1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #254238;
+  font-size: 12px;
+  font-weight: 850;
+  box-shadow: 0 8px 18px rgba(23, 32, 28, 0.06);
+}
+
+.answer-voice-button:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+}
+
+.answer-voice-button[data-active="true"] {
+  border-color: #b42318;
+  background: #b42318;
+  color: #ffffff;
+}
+
+.answer-voice-button:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.answer-voice-status {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid #dce5dd;
+  border-radius: 999px;
+  background: rgba(255, 253, 250, 0.9);
+  color: #5d6c63;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .thinking-placeholder {
@@ -624,8 +786,28 @@ button {
 
   .settings-panel,
   .prompt-grid,
+  .settings-grid.compact,
   .composer {
     grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .voice-session-indicator {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 8px;
+  }
+
+  .voice-session-detail {
+    margin-left: auto;
   }
 
   .message {
@@ -637,5 +819,9 @@ button {
     height: 30px;
     justify-self: start;
     padding: 0 10px;
+  }
+
+  .answer-voice-controls {
+    justify-content: flex-start;
   }
 }
